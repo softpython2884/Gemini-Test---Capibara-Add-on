@@ -2,12 +2,23 @@
   "name": "weather-widget-addon",
   "version": "0.1.0",
   "description": "Capibara add-on for OpenMeteo Weather Widget",
-  "main": "server.js",
+  "main": "dist/server.js",
+  "type": "commonjs",
   "scripts": {
-    "start": "node server.js"
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "ts-node-dev --respawn server.ts"
   },
   "dependencies": {
-    "express": "^4.19.2",
-    "cors": "^2.8.5"
+    "@capibara-dev/sdk": "^0.1.0",
+    "cors": "^2.8.5",
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "@types/node": "^20.12.2",
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.17",
+    "ts-node-dev": "^2.0.0"
   }
 }
