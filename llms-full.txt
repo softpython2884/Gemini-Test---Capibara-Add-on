@@ -1,0 +1,1656 @@
+# Démarrer avec les add-ons Capibara
+
+## Le modèle add-on Capibara
+
+Capibara for Developers permet de construire une extension (« add-on ») pour
+la plateforme **sans jamais avoir accès au code source de Capibara**. Tout ce
+dont un add-on a besoin se déclare dans un fichier unique, `add-on.json` (le
+« manifeste »), et se distribue via un portail dédié :
+
+1. Vous décrivez votre add-on dans un manifeste : identité, permissions
+   demandées, capacités techniques utilisées, tarif.
+2. Vous soumettez une version à la review.
+3. Une fois approuvée, vous la publiez : elle devient installable depuis le
+   marketplace par n'importe quel espace (tenant) Capibara.
+4. Si votre add-on est payant, vous touchez une part de chaque vente (cf.
+   [Revenus et rev-share](/dev/docs/revenus)).
+
+Un add-on peut avoir un **backend externe** (le vôtre, appelé « hybride » ou
+« externe ») qui appelle l'API publique de Capibara avec une clé API ou un
+jeton OAuth — c'est le modèle **fonctionnel dès aujourd'hui**. Le modèle
+« hébergé » (votre code tournant directement dans une sandbox Capibara, sans
+backend à vous) est décrit dans cette documentation mais son exécution réelle
+est encore en construction : voir la note dans [Capabilities et quotas
+d'exécution](/dev/docs/capabilities).
+
+> **Vous n'avez jamais besoin du code source de Capibara.** Le manifeste, la
+> référence des permissions/capabilities et l'API publique suffisent à
+> construire un add-on complet.
+
+---
+
+## Ce qu'il vous faut avant de commencer
+
+- Un compte Capibara (le même compte qui vous sert à administrer vos espaces).
+- **Au moins un espace (tenant) sur un forfait Pro ou Business.** Le portail
+  développeur est réservé aux comptes Pro+ — un compte uniquement Free voit un
+  mur d'accès proposant de passer à Pro. Cette vérification est refaite à
+  chaque action sensible (créer un compte dev, publier), pas seulement à la
+  connexion.
+- Savoir lire un peu de JSON. Aucune compétence Next.js/TypeScript côté
+  plateforme n'est requise pour un add-on hybride simple.
+
+Le portail est accessible sur `developer.capibara.fr`, ou directement sur
+`/dev` depuis le domaine principal.
+
+---
+
+## Étape 1 — Créer votre compte développeur
+
+Depuis `/dev`, si vous n'avez pas encore de compte développeur, un
+formulaire vous demande un **nom public** (2 à 80 caractères) — c'est le nom
+affiché sur vos add-ons et votre profil public du marketplace
+(`/marketplace/dev/<votre-slug>`). Un slug unique est dérivé automatiquement
+de ce nom (minuscules, tirets) ; s'il est déjà pris, un court suffixe aléatoire
+est ajouté.
+
+Créer un compte développeur est **idempotent** : si vous en avez déjà un, la
+même action renvoie simplement le vôtre plutôt que d'en créer un second — vous
+ne pouvez avoir qu'un compte développeur par compte Capibara.
+
+---
+
+## Étape 2 — Créer votre premier projet d'add-on
+
+Un **projet** est le conteneur stable de votre add-on : il porte un nom, une
+catégorie, et surtout une **clé technique immuable** (`key`) qui identifie
+votre add-on sur toute la plateforme, pour toujours.
+
+| Champ | Contrainte |
+|---|---|
+| Nom | 2 à 80 caractères, modifiable à tout moment. |
+| Identifiant (`key`) | kebab-case, 3 à 50 caractères (`a-z`, `0-9`, tirets), unique sur toute la plateforme, **immuable après création**. |
+| Catégorie | une valeur parmi : `sales`, `finance`, `marketing`, `productivity`, `hr`, `website`, `integration`, `other`. |
+
+Choisissez la `key` avec soin — la même valeur doit ensuite apparaître dans
+le champ `key` de chaque manifeste que vous soumettez pour ce projet, et ne
+pourra plus jamais changer. Une bonne pratique : préfixez avec un mot qui
+évoque votre produit plutôt qu'un nom trop générique (`crm-segments` plutôt
+que `segments`).
+
+---
+
+## Étape 3 — Écrire votre manifeste minimal
+
+Le manifeste `add-on.json` est la seule source de vérité de ce que fait
+votre add-on aux yeux de la plateforme. Voici le plus petit manifeste valide,
+pour un add-on gratuit qui ajoute un widget d'accueil :
+
+```json
+{
+  "key": "crm-segments",
+  "name": "Segments avancés CRM",
+  "version": "0.1.0",
+  "author": { "name": "Studio Forge", "devAccountSlug": "studio-forge" },
+  "compatibility": { "colibri": ">=1.0", "modules": ["crm"] },
+  "permissions": ["crm:read"],
+  "capabilities": ["ui.widget"],
+  "pricing": { "model": "free" },
+  "i18n": {
+    "fr": "Segmentez vos contacts CRM en un clic.",
+    "en": "Segment your CRM contacts in one click."
+  }
+}
+```
+
+La référence complète de chaque champ (types, contraintes exactes, règles de
+tarification, exemples supplémentaires) est dans [Référence du manifeste
+add-on.json](/dev/docs/manifeste).
+
+Trois façons d'écrire ce fichier depuis le portail, sur la page de votre
+add-on :
+
+1. **Éditeur de code** (Monaco) — coloration syntaxique + complétion + erreurs
+   inline, dérivées du même schéma que la validation serveur.
+2. **Formulaire assisté** — un onglet Formulaire pour les champs courants,
+   synchronisé avec l'onglet JSON (les deux éditent le même objet).
+3. **Import depuis un dépôt Git** — connectez un dépôt et le portail va y lire
+   `add-on.json` pour créer une version brouillon. **Seul GitHub est pris en
+   charge pour l'import aujourd'hui** (GitLab et Forgejo sont acceptés comme
+   simple métadonnée de projet, mais l'import de fichier ne fonctionne qu'avec
+   un dépôt GitHub pour le moment).
+
+---
+
+## Étape 4 — Le cycle de vie d'une version
+
+Chaque version de votre add-on (un `semver` précis, ex. `0.1.0`) suit un
+cycle strict :
+
+```
+DRAFT ──submit──▶ REVIEW ──approuvé──▶ APPROVED ──publish──▶ PUBLISHED
+  ▲                   │
+  └────────────────REJECTED (avec notes) ◀──┘
+```
+
+- **DRAFT** — votre brouillon. Vous pouvez l'enregistrer autant de fois que
+  nécessaire ; chaque enregistrement revalide le manifeste en direct (mêmes
+  règles que la validation serveur). La `key` doit rester identique à celle
+  du projet, et `author.devAccountSlug` doit être exactement votre slug.
+- **REVIEW** — dès que vous soumettez, le manifeste est **revalidé
+  immédiatement** (un manifeste invalide repart en `REJECTED` sur-le-champ,
+  avec le détail des erreurs). Un build est aussi mis en file pour les
+  vérifications automatisées de code.
+  > **En préparation.** Aujourd'hui, ces vérifications automatisées
+  > (lint, types, tests, audit des dépendances) restent en attente tant que
+  > le runner de build n'est pas branché : c'est la review humaine qui les
+  > couvre manuellement en attendant. Cela n'empêche pas de soumettre — mais
+  > soignez particulièrement la qualité et la sécurité de votre code, elle
+  > est revue à la main.
+- **APPROVED** — validée par l'équipe Capibara. Vous pouvez publier quand
+  vous le souhaitez (la publication n'est pas automatique).
+- **PUBLISHED** — installable depuis le marketplace. La première publication
+  d'un projet crée automatiquement sa fiche marketplace (accroche reprise de
+  votre baseline `i18n.fr`, catégorie du projet).
+- **REJECTED** — refusée, avec des notes explicites. Corrigez et resoumettez :
+  une version `REJECTED` peut être renvoyée en review comme un brouillon.
+
+Une version déjà en `REVIEW`, `APPROVED` ou `PUBLISHED` ne peut plus être
+modifiée — pour changer quoi que ce soit, incrémentez le `version` (semver)
+et enregistrez un nouveau brouillon.
+
+---
+
+## Étape 5 — Choisir comment votre add-on s'exécute
+
+Deux modèles d'exécution existent dans le manifeste et la doctrine du
+portail ; à ce stade, un seul est pleinement opérationnel :
+
+- **Add-on hybride / externe (fonctionnel aujourd'hui)** — votre add-on a un
+  **backend chez vous** (n'importe quel langage, n'importe quel hébergeur).
+  Il appelle l'[API publique](/dev/docs/api-publique) de Capibara avec une clé
+  API ou un jeton [OAuth](/dev/docs/oauth). C'est le chemin recommandé pour
+  démarrer.
+- **Add-on hébergé (en préparation)** — votre code s'exécuterait directement
+  dans une sandbox Capibara, sans backend à héberger vous-même, via un objet
+  `capibara` injecté correspondant à vos [capabilities](/dev/docs/capabilities)
+  déclarées. Déclarez déjà vos `capabilities` et vos `contributes` dans le
+  manifeste — la review en tient compte — mais ne construisez pas encore un
+  add-on qui *dépend* de cette exécution pour fonctionner : elle n'est pas
+  encore active en production.
+
+---
+
+## Checklist de première publication
+
+Avant de soumettre votre première version en review :
+
+- [ ] Le manifeste valide sans erreur (l'éditeur du portail vous le confirme
+      en direct).
+- [ ] `permissions` et `capabilities` sont **minimales** — ne demandez que
+      ce que votre add-on utilise réellement (cf. [Permissions et
+      consentement du tenant](/dev/docs/permissions)).
+- [ ] La baseline `i18n.fr` (et `i18n.en`) décrit clairement, en une phrase,
+      ce que fait l'add-on — c'est ce qui apparaît sur la fiche marketplace.
+- [ ] `support.email` est renseigné : un tenant qui installe votre add-on
+      doit pouvoir vous contacter.
+- [ ] Le tarif (`pricing`) correspond à ce que vous annoncez publiquement.
+- [ ] Vous avez testé le parcours complet côté add-on (installation,
+      utilisation, désinstallation) sur un espace de test.
+- [ ] Si votre add-on est payant, l'onboarding Stripe Connect est démarré
+      depuis `/dev/payouts` (cf. [Revenus et rev-share](/dev/docs/revenus)).
+
+---
+
+## Et ensuite ?
+
+- [Référence du manifeste add-on.json](/dev/docs/manifeste) — chaque champ,
+  en détail.
+- [Capabilities et quotas d'exécution](/dev/docs/capabilities)
+- [Permissions et consentement du tenant](/dev/docs/permissions)
+- [Sign in with Capibara (OAuth)](/dev/docs/oauth)
+- [API publique](/dev/docs/api-publique)
+- [Publication et review](/dev/docs/publication)
+- [Utiliser cette doc avec votre IA](/dev/docs/llm) — si vous construisez avec
+  l'aide d'un assistant IA, commencez par là.
+
+---
+
+# Utiliser cette doc avec votre IA
+
+## Pourquoi cette page
+
+Cette documentation est conçue pour être lue **par un assistant IA autant
+que par vous**. Chaque page existe en Markdown brut (sans mise en page,
+sans navigation) à une URL stable, et l'ensemble est disponible sous des
+formats pensés pour être collés directement dans le contexte d'un agent :
+vous n'avez jamais besoin d'accéder au code source de Capibara — cette
+documentation, plus l'[API publique](/dev/docs/api-publique), suffisent.
+
+---
+
+## Les URLs à connaître
+
+| URL | Contenu | Format |
+|---|---|---|
+| `/llms.txt` | Index de toutes les pages, groupées par catégorie, avec un résumé d'une ligne et un lien vers chaque version brute. | `text/plain`, convention [llms.txt](https://llmstxt.org) |
+| `/llms-full.txt` | **Toutes** les pages concaténées intégralement, dans l'ordre de navigation du hub. | `text/plain` |
+| `/dev/docs/raw/<slug>` | Le Markdown brut d'une seule page (ex. `/dev/docs/raw/manifeste`). | `text/markdown` |
+| `/dev/docs/download` | Une archive `.zip` contenant un fichier `.md` par page. | `application/zip` |
+
+Les trois premiers sont accessibles sans authentification particulière
+au-delà de celle déjà requise pour le reste du portail développeur ; ce sont
+de simples réponses texte, faciles à récupérer avec `curl` ou directement
+depuis le navigateur de votre agent.
+
+```
+curl https://capibara.fr/llms.txt
+curl https://capibara.fr/llms-full.txt
+curl https://capibara.fr/dev/docs/raw/manifeste
+```
+
+---
+
+## Ce que contient `/llms.txt`
+
+Un index compact, dans le format standard `llms.txt` : un titre, un court
+résumé de la plateforme, puis une section par catégorie avec un lien vers
+chaque page — pratique pour qu'un agent **découvre** la documentation
+disponible sans la charger en entier :
+
+```
+# Capibara for Developers
+
+> Construisez des add-ons pour Capibara sans accès à son code source :
+> manifeste déclaratif, permissions consenties par le tenant, API publique,
+> OAuth, distribution et rev-share.
+
+## Démarrer
+- [Démarrer avec les add-ons Capibara](https://capibara.fr/dev/docs/raw/demarrer): …
+- [Utiliser cette doc avec votre IA](https://capibara.fr/dev/docs/raw/llm): …
+
+## Référence
+- [Référence du manifeste add-on.json](https://capibara.fr/dev/docs/raw/manifeste): …
+…
+```
+
+`/llms-full.txt`, à l'inverse, ne fait aucun tri : c'est le contenu intégral
+des dix pages, séparées par `---`, pensé pour être collé **une seule fois**
+dans le contexte d'un agent qui doit ensuite répondre à des questions variées
+sans repartir chercher chaque page individuellement.
+
+---
+
+## Workflow conseillé
+
+1. **Donnez `/llms-full.txt` à votre agent** en tout début de conversation
+   (collé directement, ou récupéré via un outil de navigation web si votre
+   agent en a un). C'est la référence la plus dense : elle contient déjà le
+   manifeste exhaustif, les capabilities, les permissions, l'OAuth complet,
+   l'API publique et le modèle de revenus.
+2. **Faites écrire le manifeste par l'agent**, puis collez-le dans l'éditeur
+   du portail (onglet **Manifeste** de votre add-on, `/dev/addons/<votre-projet>/manifest`)
+   — l'éditeur valide en direct avec le même schéma que le serveur : les
+   erreurs éventuelles de l'agent sont visibles immédiatement, sans attendre
+   une soumission en review.
+3. **Itérez** : si une erreur de validation apparaît, recopiez le message
+   exact à votre agent (les messages sont listés dans [Référence du
+   manifeste](/dev/docs/manifeste#erreurs-de-validation-courantes)) — ils
+   sont volontairement explicites et actionnables.
+4. Pour un add-on hybride (backend externe), demandez à votre agent
+   d'implémenter l'appel à [l'API publique](/dev/docs/api-publique) et le
+   flux [OAuth](/dev/docs/oauth) directement depuis les séquences `curl`
+   fournies — elles sont écrites pour être traduites telles quelles dans
+   n'importe quel langage.
+
+---
+
+## Une doc, deux lecteurs
+
+Rien dans ce hub n'est réservé à l'un ou l'autre : les pages HTML
+(`/dev/docs/<slug>`) et leur version brute (`/dev/docs/raw/<slug>`)
+partagent exactement le même contenu source — pas de version « appauvrie »
+pour la machine. Si un détail vous semble absent quand vous travaillez avec
+un agent, c'est probablement qu'il est absent tout court : signalez-le
+depuis `/dev/support`.
+
+---
+
+# Référence du manifeste add-on.json
+
+## Le fichier add-on.json
+
+`add-on.json` est l'unique fichier de configuration d'un add-on Capibara. Il
+est validé par un schéma **strict** : tout champ de premier niveau qui n'est
+pas listé ci-dessous est **refusé** (pas ignoré silencieusement — la
+validation échoue avec la liste des clés inconnues). Ce document reflète
+exactement le validateur serveur ; le portail utilise le même schéma pour la
+complétion et la validation en direct dans l'éditeur de code.
+
+### Champs de premier niveau
+
+| Champ | Type | Obligatoire | Contrainte |
+|---|---|---|---|
+| `key` | string | oui | `^[a-z0-9](?:[a-z0-9-]{1,48}[a-z0-9])?$` — kebab-case, 3 à 50 caractères en pratique (imposé à la création du projet). **Immuable** : doit rester identique à la `key` du projet sur toute nouvelle version. |
+| `name` | string | oui | 2 à 80 caractères. |
+| `version` | string | oui | semver strict `MAJOR.MINOR.PATCH`, avec suffixe de pré-version optionnel (`1.2.0`, `2.0.0-beta.1`). |
+| `author` | objet | oui | cf. [author](#author). |
+| `compatibility` | objet | oui | cf. [compatibility](#compatibility). |
+| `permissions` | string[] | non (défaut `[]`) | format `resource:action` — cf. [Permissions et consentement du tenant](/dev/docs/permissions). |
+| `capabilities` | string[] | non (défaut `[]`) | sous-ensemble de la liste blanche — cf. [Capabilities et quotas d'exécution](/dev/docs/capabilities). |
+| `contributes` | objet | non | points d'extension déclaratifs — cf. [contributes](#contributes). |
+| `pricing` | objet | oui | cf. [pricing](#pricing). |
+| `i18n` | objet | oui | cf. [i18n](#i18n). |
+| `support` | objet | non | cf. [support](#support). |
+
+---
+
+### `author`
+
+| Champ | Type | Obligatoire | Contrainte |
+|---|---|---|---|
+| `author.name` | string | oui | 1 à 80 caractères. Nom affiché. |
+| `author.devAccountSlug` | string | oui | 1 à 40 caractères. **Doit être exactement** le slug de votre compte développeur (celui de `developer.capibara.fr/@<slug>`) — sinon le serveur refuse l'enregistrement avec le message `author.devAccountSlug doit être "<votre-slug>"`. |
+
+---
+
+### `compatibility`
+
+| Champ | Type | Obligatoire | Contrainte |
+|---|---|---|---|
+| `compatibility.colibri` | string | oui | non vide — plage de version de plateforme requise (ex. `">=1.0"`). |
+| `compatibility.modules` | string[] | non (défaut `[]`) | clés des modules qui doivent être **actifs chez le tenant** pour que l'add-on ait un sens (ex. `["crm"]`, `["billing-fr"]`). N'active rien tout seul : c'est une condition affichée/vérifiée, pas une activation automatique. |
+
+> **Note de nommage.** Le champ s'appelle `compatibility.colibri` (et non
+> `capibara`) : c'est un vestige du nom du moteur technique interne de la
+> plateforme. Il désigne bien la version de **Capibara** — écrivez-le tel
+> quel dans votre manifeste, la clé ne change pas.
+
+---
+
+### `permissions`
+
+Tableau de chaînes au format `resource:action`, validées par
+`^[a-z][a-z0-9-]*:(read|write|delete|admin)$`. Documentation complète —
+ressources disponibles, consentement du tenant, bonnes pratiques — dans
+[Permissions et consentement du tenant](/dev/docs/permissions).
+
+---
+
+### `capabilities`
+
+Tableau de chaînes, chacune soit dans la liste blanche fixe (`storage.tenant.ro`,
+`storage.tenant.rw`, `ui.block`, `ui.menu`, `ui.widget`, `ui.settings`,
+`ai.tool`, `events.subscribe`), soit de la forme `http.fetch:<domaine>` avec
+un domaine pleinement qualifié (`^http\.fetch:[a-z0-9.-]+\.[a-z]{2,}$`, ex.
+`http.fetch:api.example.com`). Détail de chaque capability et des quotas
+associés dans [Capabilities et quotas d'exécution](/dev/docs/capabilities).
+
+---
+
+### `contributes`
+
+Points d'extension, tous optionnels. Deux familles :
+
+**Typées et MONTÉES dès l'installation (mode hybride)** — votre page HTTPS
+est embarquée côté tenant dans une iframe isolée, avec un jeton de contexte
+signé `?capibara_token=<jwt>` que votre backend résout via
+`GET /api/public/v1/embed-context` (cf. [API publique](/dev/docs/api-publique)) :
+
+`contributes.menuEntries` (max 5, capability `ui.menu` requise) — chaque
+entrée apparaît dans la navigation du tenant et ouvre votre page :
+
+| Champ | Type | Règle |
+|---|---|---|
+| `key` | string | kebab-case, unique dans l'add-on, IMMUABLE (devient le segment d'URL `/apps/<add-on>/<key>`). |
+| `label` | string | 2-40 caractères. |
+| `labelI18n` | objet | optionnel — `{ fr?, en?, es?, de? }` (≤ 40 caractères chacun). |
+| `embedUrl` | string | **HTTPS obligatoire**, domaine public (jamais d'IP ni de localhost), ≤ 500 caractères. |
+| `icon` | string | optionnel — nom d'icône Lucide kebab-case (défaut : `puzzle`). |
+
+`contributes.widgets` (max 5, capability `ui.widget` requise) — même modèle
+pour un widget du tableau de bord d'accueil : `{ key, title (2-60),
+embedUrl, minHeight? (120-1200 px) }`. Les utilisateurs du tenant l'ajoutent
+depuis « Personnaliser » sur leur accueil (rubrique Add-ons du sélecteur) ;
+il se rend dans la même iframe isolée avec le même jeton de contexte.
+
+Exemple complet :
+
+```json
+{
+  "capabilities": ["ui.menu"],
+  "contributes": {
+    "menuEntries": [
+      {
+        "key": "tableau",
+        "label": "Tableau de bord",
+        "labelI18n": { "en": "Dashboard" },
+        "embedUrl": "https://app.votre-domaine.com/capibara",
+        "icon": "gauge"
+      }
+    ]
+  }
+}
+```
+
+Votre page reçoit `?capibara_token=…` et s'affiche dans une iframe
+`sandbox` **sans** `allow-same-origin` : elle ne peut ni lire les cookies
+Capibara ni toucher le DOM parent — concevez-la comme une page autonome.
+
+**Encore libres (typage à l'ouverture de leur montage)** — enregistrées et
+examinées en review, pas encore montées :
+
+| Clé | Nécessite la capability |
+|---|---|
+| `settingsSections` | `ui.settings` |
+| `siteBuilderBlocks` | `ui.block` |
+| `aiTools` | `ai.tool` |
+
+---
+
+### `pricing`
+
+| Champ | Type | Règle |
+|---|---|---|
+| `pricing.model` | `'free' \| 'one_time' \| 'subscription'` | obligatoire. |
+| `pricing.amountEur` | number | requis et `> 0` dès que `model` ≠ `free` ; interdit (doit être absent ou 0) quand `model = free`. |
+| `pricing.trialDays` | integer 0–30 | autorisé **uniquement** quand `model = subscription`. Sur `one_time`, le renseigner est une erreur. |
+
+Trois combinaisons valides, aucune autre :
+
+| `model` | `amountEur` | `trialDays` |
+|---|---|---|
+| `free` | absent | interdit |
+| `one_time` | `> 0` requis | interdit |
+| `subscription` | `> 0` requis | optionnel, 0–30 |
+
+Le prix est saisi en euros ; au lancement, la conversion multi-devise au
+paiement est gérée par Stripe selon le pays du payeur. Le partage de revenu
+qui s'applique à ce prix est détaillé dans [Revenus et
+rev-share](/dev/docs/revenus).
+
+---
+
+### `i18n`
+
+| Champ | Type | Obligatoire | Contrainte |
+|---|---|---|---|
+| `i18n.fr` | string | oui | 1 à 120 caractères — la baseline utilisée comme accroche par défaut de la fiche marketplace. |
+| `i18n.en` | string | oui | 1 à 120 caractères. |
+| `i18n.es` | string | non | ≤ 120 caractères. |
+| `i18n.de` | string | non | ≤ 120 caractères. |
+
+`fr` et `en` sont la **baseline obligatoire** — un manifeste sans l'une des
+deux est invalide, même si le reste est correct.
+
+---
+
+### `support`
+
+| Champ | Type | Contrainte |
+|---|---|---|
+| `support.email` | string | format e-mail valide. |
+| `support.docsUrl` | string | URL valide (`http(s)://…`). |
+
+Non obligatoire au sens du schéma, mais **fortement attendu en review** : un
+add-on sans e-mail de support est plus difficile à faire approuver, et bloque
+la fonctionnalité « Contacter le développeur » que voit un tenant qui a
+installé votre add-on.
+
+---
+
+## Erreurs de validation courantes
+
+| Message renvoyé | Cause | Correction |
+|---|---|---|
+| `Identifiant invalide (a-z, 0-9, tirets ; 3 à 50 caractères).` | `key` ne respecte pas le format kebab-case, ou commence/finit par un tiret. | Utilisez uniquement minuscules, chiffres et tirets internes (ex. `crm-segments`). |
+| `Version semver invalide (ex. 1.2.0).` | `version` n'est pas au format `MAJOR.MINOR.PATCH`. | `1.0.0`, pas `v1.0` ni `1.0`. |
+| `Permission invalide (format resource:action).` | Une entrée de `permissions` ne suit pas `resource:action`. | `crm:read`, pas `crm.read` ni `read-crm`. |
+| `Capability inconnue (ou domaine http.fetch manquant/mal formé).` | Une entrée de `capabilities` n'est ni dans la liste blanche, ni un `http.fetch:<domaine>` valide. | Vérifiez l'orthographe exacte (`ui.widget`, pas `ui.widgets`) ou complétez le domaine (`http.fetch:api.example.com`, pas `http.fetch:` seul). |
+| `Montant > 0 requis pour un add-on payant.` | `pricing.model` ≠ `free` mais `amountEur` absent ou ≤ 0. | Renseignez `amountEur`. |
+| `Un add-on gratuit ne doit pas avoir de montant.` | `pricing.model = free` avec un `amountEur` > 0. | Retirez `amountEur`, ou changez `model`. |
+| `Les essais ne s'appliquent qu'aux abonnements.` | `trialDays` renseigné avec `model = one_time`. | Retirez `trialDays`, ou passez en `subscription`. |
+| `Baseline FR obligatoire` / `Baseline EN obligatoire` | `i18n.fr` ou `i18n.en` vide. | Renseignez une phrase courte dans les deux langues. |
+| Erreur de type « clé non reconnue » sur le manifeste | Un champ de premier niveau ne fait pas partie de la liste (le schéma est strict). | Retirez le champ, ou vérifiez l'orthographe (`compatibility`, pas `compatibilities`). |
+| `Le champ "key" doit rester "<clé du projet>" (immuable).` | Le `key` du manifeste ne correspond plus à celui du projet créé sur le portail. | Remettez la `key` d'origine — pour changer d'identifiant, créez un nouveau projet. |
+| `author.devAccountSlug doit être "<votre-slug>".` | `author.devAccountSlug` ne correspond pas à votre compte développeur. | Copiez exactement votre slug depuis le tableau de bord du portail. |
+| `La version X est déjà REVIEW/APPROVED/PUBLISHED et ne peut être modifiée. Incrémentez la version.` | Vous tentez de réenregistrer un brouillon sur un `version` déjà engagé dans le cycle. | Changez `version` (ex. `0.1.0` → `0.1.1`) avant d'enregistrer. |
+
+---
+
+## Trois exemples de manifestes complets
+
+### 1. Gratuit, avec interface (widget)
+
+```json
+{
+  "key": "crm-segments",
+  "name": "Segments avancés CRM",
+  "version": "0.1.0",
+  "author": { "name": "Atelier TS", "devAccountSlug": "atelier-ts" },
+  "compatibility": { "colibri": ">=1.0", "modules": ["crm"] },
+  "permissions": ["crm:read"],
+  "capabilities": ["ui.widget"],
+  "contributes": {
+    "widgets": [
+      {
+        "key": "crm-segments-summary",
+        "titleI18n": { "fr": "Mes segments", "en": "My segments" },
+        "size": "md"
+      }
+    ]
+  },
+  "pricing": { "model": "free" },
+  "i18n": {
+    "fr": "Segmentez vos contacts CRM en un clic.",
+    "en": "Segment your CRM contacts in one click."
+  },
+  "support": { "email": "support@atelier-ts.example" }
+}
+```
+
+### 2. Payant, abonnement avec essai
+
+```json
+{
+  "key": "devis-relance-auto",
+  "name": "Relances automatiques de devis",
+  "version": "1.2.0",
+  "author": { "name": "Studio Forge", "devAccountSlug": "studio-forge" },
+  "compatibility": { "colibri": ">=1.0", "modules": ["billing-fr"] },
+  "permissions": ["billing:read"],
+  "capabilities": ["events.subscribe", "ui.settings"],
+  "contributes": {
+    "settingsSections": [
+      {
+        "key": "devis-relance-auto",
+        "titleI18n": { "fr": "Relances de devis", "en": "Quote follow-ups" }
+      }
+    ]
+  },
+  "pricing": { "model": "subscription", "amountEur": 9, "trialDays": 14 },
+  "i18n": {
+    "fr": "Relance automatiquement vos devis non signés après 3, 7 et 14 jours.",
+    "en": "Automatically follows up on unsigned quotes after 3, 7 and 14 days."
+  },
+  "support": {
+    "email": "support@studio-forge.example",
+    "docsUrl": "https://studio-forge.example/docs/devis-relance"
+  }
+}
+```
+
+### 3. Intégration hybride avec appel réseau sortant (`http.fetch`)
+
+```json
+{
+  "key": "sync-compta-externe",
+  "name": "Synchronisation comptable externe",
+  "version": "0.3.1",
+  "author": { "name": "Studio Forge", "devAccountSlug": "studio-forge" },
+  "compatibility": { "colibri": ">=1.0", "modules": ["accounting"] },
+  "permissions": ["billing:read"],
+  "capabilities": ["http.fetch:api.moncompta-externe.example", "events.subscribe"],
+  "pricing": { "model": "one_time", "amountEur": 49 },
+  "i18n": {
+    "fr": "Exporte vos écritures comptables vers un logiciel tiers via API.",
+    "en": "Exports your accounting entries to a third-party tool via API."
+  },
+  "support": { "email": "support@studio-forge.example" }
+}
+```
+
+Cet add-on illustre le modèle **hybride** : son vrai travail (l'appel vers
+`api.moncompta-externe.example`) tourne dans **votre** backend, qui
+s'authentifie séparément auprès de Capibara via une clé API ou OAuth — cf.
+[API publique](/dev/docs/api-publique). Le `http.fetch` déclaré ici documente
+l'intention pour la review ; il ne remplace pas votre propre infrastructure
+réseau tant que l'exécution hébergée n'est pas active.
+
+---
+
+# Capabilities et quotas d’exécution
+
+## Capability ou permission ?
+
+Deux champs du manifeste se ressemblent mais répondent à des questions
+différentes :
+
+- **`capabilities`** répond à *« à quel type d'extension ou de ressource
+  technique votre add-on veut-il accéder ? »* — une entrée de menu, un appel
+  réseau sortant, un espace de stockage clé/valeur…
+- **`permissions`** répond à *« à quelles données métier du tenant votre
+  add-on veut-il accéder ? »* — lire les contacts CRM, écrire des factures…
+  Documentation complète : [Permissions et consentement du
+  tenant](/dev/docs/permissions).
+
+Un add-on qui affiche un widget lisant des contacts CRM déclare donc
+généralement **les deux** : `"capabilities": ["ui.widget"]` et
+`"permissions": ["crm:read"]`.
+
+---
+
+## Liste blanche des capabilities
+
+Seules les capabilities explicitement listées ci-dessous (ou un
+`http.fetch:<domaine>` bien formé) sont acceptées par le validateur du
+manifeste — toute autre valeur est rejetée à l'enregistrement.
+
+| Capability | Autorise | Quand la demander |
+|---|---|---|
+| `storage.tenant.ro` | Lecture d'un espace de stockage clé/valeur scopé au tenant qui a installé l'add-on. | Votre add-on a besoin de relire une configuration qu'il a écrite précédemment, sans avoir à la redemander à l'utilisateur. |
+| `storage.tenant.rw` | Lecture **et** écriture de ce même espace de stockage. | Votre add-on doit mémoriser un réglage, un état, un cache léger propre à ce tenant. |
+| `ui.block` | Contribuer un bloc au site builder (constructeur de site/landing). | Votre add-on ajoute un composant visuel que l'utilisateur peut poser sur une page publique de son site. |
+| `ui.menu` | Contribuer une entrée dans la navigation latérale — **actif dès aujourd'hui en mode hybride** : votre page HTTPS est montée en iframe isolée via `contributes.menuEntries` (cf. [le manifeste](/dev/docs/manifeste)). | Votre add-on a sa propre page dans l'espace de gestion du tenant. |
+| `ui.widget` | Contribuer un widget sur le tableau de bord d'accueil — **actif dès aujourd'hui en mode hybride** via `contributes.widgets` (iframe isolée dans la grille, ajout depuis « Personnaliser »). | Votre add-on affiche un résumé ou un indicateur en un coup d'œil. |
+| `ui.settings` | Contribuer une section dans la centrale de paramétrage du tenant. | Votre add-on a des réglages que l'utilisateur doit pouvoir configurer. |
+| `ai.tool` | Exposer un outil utilisable par l'assistant IA de la plateforme. | Votre add-on veut que l'assistant IA puisse déclencher une de ses actions ou lire une de ses données, sur demande de l'utilisateur. |
+| `events.subscribe` | Souscrire aux événements de domaine typés émis par les apps (ex. facture payée, devis accepté, ticket créé). | Votre add-on réagit à un événement métier plutôt que d'interroger l'API en boucle. |
+
+### Accès réseau — `http.fetch:<domaine>`
+
+Pas de capability fixe pour le réseau sortant : chaque domaine externe que
+votre add-on appelle doit être déclaré explicitement, un par un, sous la
+forme `http.fetch:<domaine pleinement qualifié>` :
+
+```json
+{
+  "capabilities": ["http.fetch:api.exemple.com", "http.fetch:hooks.exemple.io"]
+}
+```
+
+Un domaine sans point ni TLD d'au moins deux lettres est refusé
+(`http.fetch:localhost` ou `http.fetch:api` ne valident pas). Il n'y a pas
+d'accès au réseau interne de la plateforme : seul l'egress vers des domaines
+publics explicitement déclarés est concerné, et — une fois l'exécution
+hébergée active — chaque appel sera proxifié et audité (cf. quotas
+ci-dessous). En attendant, un add-on **hybride/externe** fait ses appels
+réseau depuis son propre backend, sans passer par cette capability : il
+appelle l'[API publique](/dev/docs/api-publique) de Capibara avec une clé API
+ou un jeton OAuth, comme n'importe quel client HTTP.
+
+---
+
+## Quotas de l'exécution hébergée
+
+Ces quotas s'appliquent à l'isolate d'exécution d'un add-on **hébergé** (le
+modèle « votre code tourne chez Capibara », par opposition à un backend
+externe que vous gérez vous-même) :
+
+| Quota | Valeur |
+|---|---|
+| Temps CPU | 50 ms par requête |
+| Mémoire | 128 Mo |
+| Appels au capability broker | 100 par requête (anti-boucle) |
+
+Un dépassement coupe l'exécution de la requête en cours — l'add-on ne peut
+pas dégrader le reste de l'espace du tenant ni des autres tenants. Chaque
+appel passant par le capability broker est audité (journal consultable par
+l'équipe de review en cas d'incident), et un add-on défaillant peut être
+isolé (kill switch, cf. [Publication et review](/dev/docs/publication))
+globalement ou pour un seul tenant, sans affecter les autres.
+
+### Deux façons de faire tourner votre logique
+
+**A — Code HÉBERGÉ (sandbox).** Ajoutez `main` à votre manifeste (chemin
+relatif, ex. `"main": "src/index.ts"`). À la publication, Capibara empaquette
+ce point d'entrée (sans jamais exécuter votre code au build) et le fait tourner
+dans un isolate contraint (workerd). Votre module exporte un handler façon
+worker :
+
+```ts
+export default {
+  async fetch(request, env) {
+    // env.capibara = votre seule porte vers la plateforme (servie par le broker,
+    // qui applique capabilities + permissions + quotas + audit).
+    await env.capibara.storage.put('compteur', { n: 1 });   // storage.tenant.rw
+    const cfg = await env.capibara.storage.get('compteur'); // storage.tenant.ro
+    const r = await env.capibara.fetch('https://api.exemple.com/x'); // http.fetch:api.exemple.com
+    return new Response(JSON.stringify({ cfg, upstream: r.status }));
+  },
+};
+```
+
+Votre code est appelé côté tenant via `/api/addons/<votre-clé>/<chemin>`
+(authentifié, tenant résolu). `env.capibara` expose `storage.get/list/put/delete`
+(KV cloisonné par tenant) et `fetch(url, init)` (sortie réseau bornée, vers les
+domaines `http.fetch:` déclarés). Aucun autre accès : ni DB, ni réseau libre,
+ni secret. Les quotas ci-dessus s'appliquent réellement à ce code.
+
+> **Activation.** Le runtime hébergé se déploie côté instance (profil Docker
+> `addons`). Sur une instance où il n'est pas encore activé, l'invocation
+> renvoie proprement « runtime non activé » — votre add-on reste distribué et
+> installable, et son mode hybride (ci-dessous) fonctionne sans dépendre du
+> runtime.
+
+**B — Mode HYBRIDE (sans `main`).** Votre propre backend appelle l'[API
+publique](/dev/docs/api-publique), vos pages sont montées côté tenant via
+`contributes.menuEntries` (iframe isolée + jeton de contexte signé), et les
+[webhooks sortants](/dev/docs/webhooks) vous poussent les événements. Ce chemin
+ne dépend d'aucune activation et fonctionne dès aujourd'hui. Les deux modes se
+combinent librement.
+
+---
+
+## Déclarer des capabilities : bonnes pratiques
+
+- **Minimum nécessaire** — chaque capability demandée est visible par la
+  review et (à terme) par l'administrateur du tenant au moment de
+  l'installation. N'en demandez que ce que votre add-on utilise vraiment.
+- **Cohérence avec `contributes`** — si vous déclarez `ui.widget`, la review
+  s'attend à trouver une entrée correspondante dans `contributes.widgets` (et
+  réciproquement).
+- **`http.fetch` un domaine à la fois** — pas de joker, pas de sous-domaine
+  générique : un domaine par service tiers que vous appelez réellement.
+- **Pas de capability « au cas où »** — en ajouter une que vous n'utilisez
+  pas encore ralentit la review et n'apporte rien tant qu'elle n'est pas
+  exercée.
+
+---
+
+# Permissions et consentement du tenant
+
+## Le format `resource:action`
+
+Chaque entrée du tableau `permissions` du manifeste suit le format :
+
+```
+resource:action
+```
+
+validé par l'expression régulière `^[a-z][a-z0-9-]*:(read|write|delete|admin)$`.
+
+- `resource` commence par une lettre minuscule, puis lettres/chiffres/tirets
+  (c'est la clé technique d'un module de la plateforme — cf. le tableau
+  ci-dessous).
+- `action` est l'une de : `read`, `write`, `delete`, `admin`.
+
+Exemples valides : `crm:read`, `shop:write`, `billing-fr:read`,
+`support:delete`. Exemples invalides : `crm.read` (point au lieu de deux-
+points), `read-crm` (ordre inversé), `CRM:read` (majuscules).
+
+---
+
+## Ressources first-party
+
+Ces clés correspondent aux modules métier réels de la plateforme. Une
+permission ne porte que sur les **données du tenant** dans ce module — jamais
+sur la configuration de la plateforme elle-même.
+
+| Ressource | Module |
+|---|---|
+| `crm` | CRM (contacts, sociétés, opportunités) |
+| `shop` | Boutique en ligne |
+| `billing-fr` | Facturation et devis |
+| `accounting` | Comptabilité |
+| `inventory` | Stock |
+| `purchasing` | Achats |
+| `projects` | Projets |
+| `planning` | Planning et rendez-vous |
+| `support` | Support client |
+| `blog` | Blog |
+| `newsletter` | Newsletter |
+| `site` | Site et landing builder |
+| `media` | Médiathèque |
+| `documents` | Documents et wiki |
+| `chat` | Chat interne |
+| `hr` | Ressources humaines |
+| `formation` | Formation (OF / Qualiopi) |
+| `domains` | Domaines personnalisés |
+| `mail` | Messagerie |
+
+> Cette liste couvre les ressources RBAC des modules de premier niveau. Un
+> module peut exposer des sous-ressources plus fines en interne (par exemple
+> une action d'administration réservée) — si votre add-on a besoin d'une
+> permission qui ne correspond à aucune de ces clés, demandez sur
+> `/dev/support` plutôt que de deviner une clé qui n'existe pas : une
+> permission sur une ressource inconnue n'est pas rejetée par le format
+> (l'expression régulière accepte toute chaîne qui y ressemble), mais elle
+> n'ouvrira aucun accès réel.
+
+---
+
+## Le consentement à l'installation
+
+Les permissions ne sont pas qu'une déclaration technique : **l'administrateur
+du tenant les voit et les accorde explicitement** avant que votre add-on ne
+soit installé. Sur la fiche d'installation, une carte « Permissions
+demandées » liste chaque entrée de votre manifeste en clair, et l'installation
+d'un add-on gratuit est bloquée tant que la case suivante n'est pas cochée :
+
+> *« J'autorise cet add-on à accéder aux permissions ci-dessus dans mon
+> espace. »*
+
+Pour un add-on payant, le même écran de permissions précède le paiement. Et à
+chaque **mise à jour** de version installée, l'administrateur doit
+**re-consentir** explicitement aux permissions de la nouvelle version — les
+mises à jour ne sont jamais silencieuses ni automatiques. Si vous ajoutez une
+permission dans une nouvelle version, attendez-vous à ce que certains tenants
+mettent plusieurs jours avant de la ré-accepter : ne rendez pas votre add-on
+dépendant d'une mise à jour instantanée.
+
+---
+
+## Revalidées en base, jamais en confiance
+
+Côté plateforme, chaque permission déclarée est confrontée au RBAC strict de
+Capibara : les accès sont **revalidés en base à chaque appel**, jamais mis en
+cache sur la seule foi du consentement initial. Un add-on qui perd une
+permission (retirée par l'administrateur, ou parce que le module a été
+désactivé chez ce tenant) voit ses appels correspondants refusés
+immédiatement, pas seulement à la prochaine installation.
+
+---
+
+## Bonnes pratiques (principe du moindre privilège)
+
+- **Une permission par usage réel.** Si votre add-on ne fait que lire les
+  contacts CRM pour afficher un résumé, déclarez `crm:read` — pas
+  `crm:write` « au cas où une future version en aurait besoin ».
+- **Séparez lecture et écriture.** `shop:read` et `shop:write` sont deux
+  entrées distinctes : ne demandez `write` que si vous créez/modifiez
+  réellement des données.
+- **`delete` et `admin` sont sensibles.** Ce sont les permissions qui
+  ralentissent le plus la review humaine — n'y recourez que si la
+  fonctionnalité l'exige vraiment, et expliquez pourquoi dans votre fiche de
+  soumission.
+- **Moins de permissions = review plus rapide et plus de confiance tenant.**
+  Un tenant qui voit une longue liste de permissions pour un petit add-on
+  hésite à installer.
+
+---
+
+## Lien avec la review
+
+La liste de permissions de votre manifeste fait partie de ce que l'équipe
+Capibara regarde à la review (cf. [Publication et
+review](/dev/docs/publication)) : une permission qui ne correspond à rien de
+visible dans la description ou le comportement annoncé de l'add-on est un
+motif de refus fréquent. Documentez, dans votre fiche marketplace, à quoi
+sert chaque permission un peu inhabituelle.
+
+---
+
+# SDK @capibara-dev/sdk
+
+## Statut : disponible (v0.1.0, tarball)
+
+Le SDK est **téléchargeable dès maintenant** en tarball npm :
+
+```bash
+# Téléchargement direct
+curl -O https://capibara.fr/dev-sdk/capibara-dev-sdk-0.1.0.tgz
+
+# Installation dans votre projet
+npm install ./capibara-dev-sdk-0.1.0.tgz
+```
+
+La publication sur le registre npm public (`npm i @capibara-dev/sdk`) suivra —
+cette page sera mise à jour ; le tarball restera disponible. Zéro dépendance,
+compatible Node ≥ 18, navigateurs et workers (`fetch` + WebCrypto).
+
+---
+
+## Ce qu'il contient
+
+- **Types TypeScript du manifeste** (`AddonManifest`, `AddonCapability`,
+  `AddonPermission`, `AddonPricing`…) — miroir du schéma Zod qui valide
+  `add-on.json` côté plateforme, verrouillé par un test anti-dérive dans
+  la CI de Capibara. La validation autoritaire reste celle du portail.
+- **`CapibaraClient`** — client typé de l'[API publique](/dev/docs/api-publique) :
+  `Bearer` clé API (`ck_live_…`) ou access token OAuth, erreurs typées
+  `CapibaraApiError` (statut, corps, `retryAfterSeconds` sur 429), méthode
+  `me()` et `request<T>(path)` générique pour les endpoints à venir.
+- **Aides OAuth PKCE** — `generateCodeVerifier()`, `codeChallengeS256()`,
+  `buildAuthorizeUrl()`, `exchangeAuthorizationCode()`,
+  `clientCredentialsToken()` : le flux complet de
+  [Sign in with Capibara](/dev/docs/oauth) sans réécrire la cryptographie.
+- **`verifyWebhookSignature(rawBody, header, secret)`** — vérification
+  HMAC-SHA256 en temps constant des [webhooks sortants](/dev/docs/webhooks)
+  (en-tête `x-capibara-signature: sha256=<hex>`), à brancher dans votre
+  endpoint de réception.
+
+---
+
+## Exemples
+
+```ts
+import { CapibaraClient } from '@capibara-dev/sdk';
+
+const capibara = new CapibaraClient({ token: process.env.CAPIBARA_API_KEY! });
+const me = await capibara.me();
+console.log(me.developer.slug, me.scopes);
+```
+
+```ts
+import { verifyWebhookSignature, WEBHOOK_SIGNATURE_HEADER } from '@capibara-dev/sdk';
+
+// Dans votre handler HTTP — TOUJOURS vérifier sur le corps BRUT reçu,
+// jamais sur un JSON re-sérialisé (la signature porte sur les octets).
+const ok = await verifyWebhookSignature(rawBody, req.headers[WEBHOOK_SIGNATURE_HEADER], secret);
+if (!ok) return res.status(401).end();
+```
+
+---
+
+## Construire sans le SDK reste possible
+
+Le SDK est un confort, pas un prérequis :
+
+- L'éditeur du portail applique en direct le **même JSON Schema** que les
+  types du SDK — vos manifestes sont validés à la même source de vérité.
+- L'[API publique](/dev/docs/api-publique) s'appelle avec n'importe quel
+  client HTTP (`fetch`, `curl`…).
+- Le flux [OAuth PKCE](/dev/docs/oauth) est documenté avec des séquences
+  `curl`/Node.js complètes.
+
+Cette documentation (les pages du hub + les endpoints `llms.txt` décrits
+dans [Utiliser cette doc avec votre IA](/dev/docs/llm)) est conçue pour
+suffire, avec l'aide d'un assistant IA si vous le souhaitez, à construire un
+add-on complet.
+
+---
+
+# Sign in with Capibara (OAuth)
+
+## Deux grants, deux usages
+
+Capibara expose un fournisseur OAuth 2.0 maison (JWT HMAC-SHA256, sans
+dépendance externe) avec **deux grants réellement fonctionnels** :
+
+| Grant | Usage | Nécessite un utilisateur ? |
+|---|---|---|
+| `client_credentials` | Votre backend appelle l'API pour son propre compte (tâches de fond, synchronisation). | non |
+| `authorization_code` + PKCE | « Se connecter avec Capibara » — un utilisateur autorise votre application à agir en son nom. | oui, avec écran de consentement |
+
+Les deux grants émettent le même type de jeton : un JWT compact signé
+HS256, valable **1 heure** (`expires_in: 3600`). Ce jeton est **opaque pour
+vous** : vous pouvez le décoder pour en lire l'expiration, mais vous ne
+pouvez pas vérifier sa signature (elle est scellée avec un secret serveur) —
+utilisez-le tel quel comme `Authorization: Bearer <token>`, il n'y a ni
+endpoint d'introspection ni JWKS public à ce stade.
+
+**Débit limité** : `POST /api/oauth/token` accepte au plus **30 requêtes par
+5 minutes par IP appelante** ; au-delà, `429` avec un en-tête
+`Retry-After: 300`.
+
+---
+
+## Créer un client OAuth
+
+Depuis `/dev/keys`, section « Clients OAuth » :
+
+| Champ | Contrainte |
+|---|---|
+| Nom | 2 à 80 caractères — affiché à l'utilisateur sur l'écran de consentement. |
+| URLs de redirection | jusqu'à 10, chacune une URL absolue valide. Doivent correspondre **exactement** à l'URL utilisée dans la requête d'autorisation. |
+| Scopes | sous-ensemble de : `crm:read`, `crm:write`, `shop:read`, `shop:write`, `billing:read`, `site:read`, `media:read`. |
+
+La création renvoie un `client_id` (`cid_…`) et un `client_secret`
+(`csec_…`) affichés **une seule fois** — seul le hash du secret est
+conservé côté serveur. Notez-les tout de suite dans votre gestionnaire de
+secrets.
+
+---
+
+## Grant `client_credentials` (serveur-à-serveur)
+
+```
+POST https://capibara.fr/api/oauth/token
+Content-Type: application/json
+
+{
+  "grant_type": "client_credentials",
+  "client_id": "cid_VOTRE_CLIENT_ID",
+  "client_secret": "csec_VOTRE_CLIENT_SECRET",
+  "scope": "crm:read shop:read"
+}
+```
+
+Réponse (`200`) :
+
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.…",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "scope": "crm:read shop:read"
+}
+```
+
+`scope` est optionnel dans la requête : si omis, le jeton reçoit tous les
+scopes déjà accordés au client. S'il est fourni, seule l'**intersection**
+entre les scopes demandés et ceux du client est accordée — demander un scope
+que le client ne possède pas ne provoque pas d'erreur, il est simplement
+absent du jeton final.
+
+Le corps peut aussi être envoyé en `application/x-www-form-urlencoded`
+(format historique OAuth) — les deux formats sont acceptés par l'endpoint.
+
+---
+
+## Grant `authorization_code` + PKCE (connexion utilisateur)
+
+PKCE (`S256` uniquement — `plain` est refusé) est **obligatoire**, y
+compris pour un client confidentiel : c'est la seule méthode de preuve de
+possession acceptée par cet endpoint.
+
+### 1. Générez un `code_verifier` et son `code_challenge`
+
+```js
+const crypto = require('node:crypto');
+
+const codeVerifier = crypto.randomBytes(32).toString('base64url');
+const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
+```
+
+Conservez `codeVerifier` en mémoire côté serveur (associé à la session de
+l'utilisateur qui démarre le flux) — vous en aurez besoin à l'étape 4.
+
+### 2. Redirigez l'utilisateur vers l'autorisation
+
+```
+GET https://capibara.fr/api/oauth/authorize
+  ?response_type=code
+  &client_id=cid_VOTRE_CLIENT_ID
+  &redirect_uri=https%3A%2F%2Fmon-app.example%2Foauth%2Fcallback
+  &scope=crm%3Aread%20shop%3Aread
+  &state=UN_JETON_ANTI_CSRF_ALEATOIRE
+  &code_challenge=LE_CODE_CHALLENGE_CALCULE
+  &code_challenge_method=S256
+```
+
+Validations effectuées par cet endpoint avant de continuer : `response_type`
+doit valoir `code`, `client_id`/`redirect_uri`/`code_challenge` sont
+requis, `code_challenge_method` doit être `S256`, le client doit exister et
+`redirect_uri` doit correspondre **exactement** à l'une de ses URLs
+enregistrées. Les scopes accordés sont réduits à l'intersection avec ceux du
+client, silencieusement (pas d'erreur si vous en demandez un de trop).
+
+Si tout est valide, l'utilisateur est redirigé vers l'écran de consentement
+Capibara (`/oauth/consent`) — connecté d'abord si nécessaire.
+
+### 3. L'utilisateur autorise (ou refuse)
+
+L'écran de consentement affiche le nom de votre application, votre nom de
+développeur, et la liste des scopes demandés en clair (ex. `crm:read`). Deux
+issues :
+
+- **Refus** → redirection vers `redirect_uri?error=access_denied&state=…`.
+- **Acceptation** → un code d'autorisation à usage unique est généré (valable
+  **10 minutes**), et l'utilisateur est redirigé vers :
+  `redirect_uri?code=UN_CODE&state=…`
+
+### 4. Échangez le code contre un jeton
+
+```
+POST https://capibara.fr/api/oauth/token
+Content-Type: application/json
+
+{
+  "grant_type": "authorization_code",
+  "code": "LE_CODE_RECU_SUR_VOTRE_REDIRECT_URI",
+  "client_id": "cid_VOTRE_CLIENT_ID",
+  "redirect_uri": "https://mon-app.example/oauth/callback",
+  "code_verifier": "LE_CODE_VERIFIER_DE_L_ETAPE_1"
+}
+```
+
+Réponse (`200`) — identique en forme à celle du grant `client_credentials` :
+
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.…",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "scope": "crm:read shop:read"
+}
+```
+
+> **Note.** Cet échange ne demande **pas** `client_secret` : la preuve de
+> possession repose uniquement sur `code_verifier` (PKCE), ce qui permet à
+> ce même grant de fonctionner pour une application qui ne peut pas garder un
+> secret confidentiel (mobile, SPA). Le code est vérifié sur `client_id`,
+> `redirect_uri` (doit correspondre exactement à celui de l'étape 2) et
+> `code_verifier` (son empreinte SHA-256 doit correspondre au
+> `code_challenge` envoyé à l'étape 2) ; il est **consommé** au premier
+> échange réussi — le réutiliser renvoie `invalid_grant`.
+
+---
+
+## Erreurs standard renvoyées
+
+| HTTP | `error` | Quand |
+|---|---|---|
+| 400 | `invalid_request` | paramètre requis manquant (ex. `code_challenge`, `client_secret`). |
+| 400 | `invalid_client` | `client_id`/`client_secret` incorrects, ou client inconnu. |
+| 400 | `invalid_grant` | code d'autorisation expiré, déjà consommé, ou ne correspondant pas au `client_id`/`redirect_uri`/`code_verifier` fournis. |
+| 400 | `unsupported_response_type` | `response_type` ≠ `code` sur `/api/oauth/authorize`. |
+| 400 | `unsupported_grant_type` | `grant_type` ni `client_credentials` ni `authorization_code`. |
+| 400 | `access_denied` (en paramètre de redirection, pas de code HTTP) | l'utilisateur a refusé le consentement. |
+| 429 | `rate_limited` | plus de 30 requêtes/5 min sur `/api/oauth/token` depuis la même IP. En-tête `Retry-After` fourni. |
+
+---
+
+## Utiliser le jeton obtenu
+
+Quel que soit le grant, le jeton s'utilise identiquement contre l'[API
+publique](/dev/docs/api-publique) :
+
+```
+GET https://capibara.fr/api/public/v1/me
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.…
+```
+
+---
+
+# API publique
+
+## Base et authentification
+
+L'API publique est servie sur le domaine principal de l'application :
+
+```
+https://capibara.fr/api/public/v1/…
+```
+
+Un seul mécanisme d'authentification, deux porteurs possibles dans l'en-tête
+`Authorization` :
+
+```
+Authorization: Bearer <clé API ck_live_… OU jeton d'accès OAuth>
+```
+
+- **Clé API** (`ck_live_…`) — générée depuis `/dev/keys`, section « Clés
+  API ». C'est le chemin le plus simple pour un add-on hybride : la clé ne
+  change pas tant que vous ne la révoquez pas.
+- **Jeton d'accès OAuth** — obtenu via l'un des deux grants décrits dans
+  [Sign in with Capibara (OAuth)](/dev/docs/oauth). Valable 1 heure ; à
+  renouveler en refaisant le flux (il n'y a pas de `refresh_token` à ce
+  stade).
+
+Aucune requête n'aboutit sans l'un des deux : une absence ou une valeur
+invalide renvoie `401` avec un en-tête `WWW-Authenticate: Bearer`.
+
+---
+
+## `GET /api/public/v1/me`
+
+Le seul endpoint de la surface publique aujourd'hui — il sert de test
+d'authentification et d'identité :
+
+```
+GET https://capibara.fr/api/public/v1/me
+Authorization: Bearer ck_live_VOTRE_CLE
+```
+
+Réponse (`200`) :
+
+```json
+{
+  "developer": {
+    "slug": "studio-forge",
+    "displayName": "Studio Forge",
+    "partner": false
+  },
+  "scopes": ["crm:read", "shop:read"],
+  "auth": "api_key"
+}
+```
+
+`auth` vaut `"api_key"` ou `"oauth"` selon le porteur utilisé — utile pour
+distinguer vos deux modes d'intégration dans vos propres journaux. `scopes`
+reflète exactement ceux de la clé (ou du jeton) utilisé, pas l'ensemble des
+scopes possibles.
+
+> Cet endpoint ne coûte pas de quota différent des autres : il compte comme
+> n'importe quel appel dans la limite ci-dessous. Utilisez-le pour vérifier
+> qu'une intégration est bien configurée avant de construire dessus, pas en
+> polling répété.
+
+---
+
+## Scopes disponibles
+
+Le même vocabulaire de scopes s'applique aux clés API et aux clients OAuth :
+
+| Scope | Donne accès à |
+|---|---|
+| `crm:read` | Lecture des données CRM (contacts, sociétés, opportunités). |
+| `crm:write` | Écriture dans le CRM. |
+| `shop:read` | Lecture du catalogue et des commandes boutique. |
+| `shop:write` | Écriture dans la boutique. |
+| `billing:read` | Lecture des factures et devis. |
+| `site:read` | Lecture du contenu du site (pages, blocs publiés). |
+| `media:read` | Lecture de la médiathèque. |
+
+> **En extension continue.** Cette liste est volontairement resserrée
+> aujourd'hui. La surface complète (écriture facturation, projets, support…)
+> s'ouvre au rythme de la publication du [SDK `@capibara-dev/sdk`](/dev/docs/sdk),
+> qui figera les types et les endpoints par ressource plutôt que de les
+> découvrir un par un.
+
+---
+
+## Quotas
+
+**120 requêtes par minute**, par identifiant authentifié — pas par adresse
+IP. L'identifiant est votre clé API (ou votre compte développeur, si vous
+appelez via OAuth) : plusieurs backends utilisant la même clé partagent le
+même quota, et à l'inverse, une même IP appelant pour plusieurs devs ne les
+fait pas se gêner entre eux.
+
+Au-delà du quota :
+
+```
+HTTP/1.1 429 Too Many Requests
+Retry-After: 60
+Content-Type: application/json
+
+{ "error": "rate_limited" }
+```
+
+Attendez le délai indiqué par `Retry-After` (en secondes) avant de
+réessayer — un retry immédiat en boucle prolonge votre propre exclusion sans
+bénéfice.
+
+---
+
+## Conventions d'erreur
+
+Toutes les erreurs de l'API publique suivent la même forme : un statut HTTP
+adapté et un corps JSON `{ "error": "<code>" }`.
+
+| HTTP | `error` | Sens |
+|---|---|---|
+| 401 | `unauthorized` | en-tête `Authorization` absent, mal formé, ou clé/jeton invalide. |
+| 403 | `forbidden` | authentification valide mais scope insuffisant pour l'action demandée. |
+| 404 | `not_found` | ressource absente ou hors de portée du compte authentifié. |
+| 429 | `rate_limited` | quota dépassé (voir ci-dessus). |
+
+Construisez votre gestion d'erreurs sur ce contrat plutôt que sur le message
+d'erreur (qui peut évoluer) : le champ `error` est la valeur stable.
+
+---
+
+## Et pour le reste de la plateforme ?
+
+Si votre add-on a besoin d'une ressource qui n'est pas encore exposée
+publiquement, décrivez le besoin depuis `/dev/support` — la priorité des
+prochains endpoints suit les demandes réelles des développeurs du portail,
+et sera documentée ici au fur et à mesure de sa sortie.
+
+---
+
+# Webhooks sortants
+
+## Principe
+
+Quand une organisation qui a **installé votre app** déclenche un événement
+métier (commande passée, facture payée, devis accepté…), Capibara envoie un
+`POST` JSON **signé** à l'URL que vous avez configurée. Vous n'interrogez
+plus l'API en boucle : votre backend réagit en temps réel.
+
+Configuration : portail développeur → votre app → onglet **Webhooks** →
+« Ajouter un webhook ». Vous choisissez l'URL (HTTPS obligatoire) et les
+événements souscrits. Le **secret** est affiché **une seule fois** à la
+création — stockez-le immédiatement (variable d'environnement, jamais dans
+le code : le scan de review le détecterait).
+
+> 5 webhooks maximum par app. Les adresses IP littérales et les hôtes
+> locaux/internes sont refusés.
+
+## Format de livraison
+
+```http
+POST /votre/endpoint HTTP/1.1
+Content-Type: application/json
+User-Agent: Capibara-Webhooks/1.0
+x-capibara-signature: sha256=3f5a…e2c1
+x-capibara-event: invoice.paid
+x-capibara-delivery: 018f3c2e-7b1a-4c5d-9e8f-2a6b4c8d0e1f
+```
+
+```json
+{
+  "id": "018f3c2e-7b1a-4c5d-9e8f-2a6b4c8d0e1f",
+  "event": "invoice.paid",
+  "occurredAt": "2026-07-02T14:32:05.120Z",
+  "tenantId": "cm9x…",
+  "data": { "invoiceId": "inv_…", "totalCents": 12050 }
+}
+```
+
+- `id` (= `x-capibara-delivery`) est **stable à travers les retries** d'une
+  même livraison : c'est votre clé d'**idempotence** — si vous l'avez déjà
+  traité, répondez 2xx sans retraiter.
+- `tenantId` identifie l'organisation émettrice (le même que dans l'API).
+- `data` porte les champs métier de l'événement — aucun identifiant interne
+  de compte plateforme n'est transmis.
+
+## Vérifier la signature (obligatoire)
+
+Chaque requête est signée **HMAC-SHA256** sur le **corps brut** avec votre
+secret : en-tête `x-capibara-signature: sha256=<hex>`. Rejetez (401) toute
+requête dont la signature ne correspond pas — sinon n'importe qui pouvant
+deviner votre URL peut vous injecter de faux événements.
+
+Avec [@capibara-dev/sdk](/dev/docs/sdk) :
+
+```ts
+import { verifyWebhookSignature, WEBHOOK_SIGNATURE_HEADER } from '@capibara-dev/sdk';
+
+// ⚠️ TOUJOURS sur le corps BRUT reçu (string/octets), jamais sur un JSON
+// re-sérialisé : la signature porte sur les octets exacts.
+const ok = await verifyWebhookSignature(rawBody, req.headers[WEBHOOK_SIGNATURE_HEADER], process.env.CAPIBARA_WEBHOOK_SECRET!);
+if (!ok) return res.status(401).end();
+```
+
+Sans SDK (Node.js) :
+
+```ts
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
+function verify(rawBody: string, header: string, secret: string): boolean {
+  const m = /^sha256=([0-9a-f]{64})$/i.exec(header ?? '');
+  if (!m) return false;
+  const expected = Buffer.from(m[1], 'hex');
+  const actual = createHmac('sha256', secret).update(rawBody, 'utf8').digest();
+  return expected.length === actual.length && timingSafeEqual(actual, expected);
+}
+```
+
+## Accusé de réception, retries, désactivation
+
+- Répondez **2xx en moins de 10 secondes** pour accuser réception. Faites le
+  traitement lourd en asynchrone chez vous (queue) — répondez d'abord.
+- Toute autre réponse (ou timeout) déclenche des **retries à backoff
+  croissant** : 1 min, 5 min, 15 min, 1 h, 3 h, 6 h, 12 h, 24 h.
+- Après **8 échecs consécutifs**, la souscription est **désactivée
+  automatiquement** et vous êtes prévenu par e-mail. Corrigez votre endpoint
+  puis réactivez-la depuis l'onglet Webhooks (le compteur repart à zéro).
+- Le bouton **Tester** envoie un ping signé (`"event": "ping"`) immédiat,
+  sans pénaliser la souscription.
+
+## Événements disponibles
+
+| Événement | Émis quand… |
+|---|---|
+| `contact.created` | Un contact est créé (CRM, formulaire du site, import…). |
+| `quote.created` / `quote.accepted` | Un devis est créé / accepté. |
+| `opportunity.won` | Une opportunité CRM est gagnée. |
+| `invoice.created` / `invoice.sent` / `invoice.paid` / `invoice.voided` | Cycle de vie d'une facture. |
+| `order.placed` / `order.shipped` | Une commande boutique est passée / expédiée. |
+| `product.created` / `product.updated` | Catalogue produit. |
+| `stock.low` / `stock.movement.recorded` / `goods.received` | Stock et réceptions. |
+| `booking.created` | Une réservation est prise (planning). |
+| `employee.created` / `leave.requested` / `leave.approved` | RH. |
+| `document.attached` | Un document est attaché à une fiche. |
+
+> Vous ne recevez que les événements des organisations qui ont **installé
+> votre app** (installation active) — jamais ceux du reste de la plateforme.
+
+## Bonnes pratiques
+
+- **Idempotence** : déduplicable par `id` (les retries renvoient le même).
+- **Ordre non garanti** : datez vos traitements avec `occurredAt`, pas avec
+  l'ordre d'arrivée.
+- **Secret par webhook** : régénérez-le au moindre doute (l'ancien est
+  invalidé immédiatement) et limitez sa diffusion à l'endpoint de réception.
+
+---
+
+# Publication et review
+
+## Soumettre une version en review
+
+Depuis un brouillon (`DRAFT`) valide, la soumission déclenche deux choses
+immédiatement :
+
+1. Une **revalidation complète du manifeste**, avec le même schéma que
+   l'éditeur du portail. Si elle échoue, la version repart directement en
+   `REJECTED` avec le détail des erreurs — sans attendre personne.
+2. La mise en file d'un build pour les vérifications automatisées de code.
+
+> **En préparation.** Aujourd'hui, ce build reste en attente : les gates de
+> lint, type-check, analyse de sécurité statique, tests et audit des
+> dépendances **ne sont pas encore exécutées automatiquement**. C'est la
+> review humaine qui couvre ces points manuellement le temps que le runner de
+> build soit branché. Ne soumettez pas un add-on que vous n'avez pas testé
+> vous-même : la review vérifie la cohérence et la sécurité déclarative, pas
+> (encore) l'exécution de votre code.
+
+---
+
+## Ce que la review vérifie
+
+- **Le manifeste** — champs cohérents, permissions et capabilities
+  proportionnées à ce que l'add-on annonce faire (cf. [Permissions et
+  consentement du tenant](/dev/docs/permissions) et [Capabilities et quotas
+  d'exécution](/dev/docs/capabilities)).
+- **La description honnête** — la baseline `i18n`, la tagline et la
+  description de la fiche marketplace doivent correspondre à ce que l'add-on
+  fait réellement. Une promesse non tenue (ex. « synchronisation en temps
+  réel » pour un traitement en réalité manuel) est un motif de refus.
+- **La catégorie correcte** — cohérente avec la fonction principale de
+  l'add-on, pas choisie pour la visibilité.
+- **Les permissions et capabilities** — au minimum nécessaire (principe du
+  moindre privilège).
+- **Le support** — un `support.email` valide et surveillé.
+- **La sécurité et la qualité générale du code**, dans la mesure du possible
+  à la lecture (tant que les gates automatisées ne sont pas branchées).
+
+---
+
+## Délais
+
+Il n'y a pas de délai contractuel affiché à ce stade : les versions
+soumises sont traitées **dans l'ordre d'arrivée** par l'équipe Capibara.
+Suivez le statut de votre version (`REVIEW`, `APPROVED`, `REJECTED`)
+directement depuis la page de votre add-on sur le portail — aucune action de
+votre part n'est nécessaire pendant l'attente.
+
+---
+
+## Motifs de refus courants
+
+- Manifeste invalide ou champs incohérents entre eux (ex. `capabilities`
+  déclarant `ui.widget` sans widget correspondant dans `contributes`).
+- Permissions ou capabilities disproportionnées par rapport à la
+  fonctionnalité décrite.
+- Description ou tagline trompeuse, ou qui promet une fonctionnalité non
+  implémentée.
+- Absence de `support.email`, ou adresse manifestement non surveillée.
+- Comportement suspect détecté à la lecture (appel réseau vers un domaine non
+  déclaré dans `capabilities`, tentative de contournement des permissions).
+- Contenu ou comportement contraire aux CGV Marketplace (logiciel
+  malveillant, tracker non déclaré, violation de droits de tiers).
+
+Un refus est toujours accompagné de notes explicites. Corrigez et resoumettez
+— une version `REJECTED` redevient un brouillon modifiable.
+
+---
+
+## Publier une version approuvée
+
+Une fois `APPROVED`, la publication est **une action volontaire** : rien ne
+se publie automatiquement. Au premier `publish` d'un projet, la fiche
+marketplace est créée automatiquement, avec :
+
+- l'**accroche** reprise de votre baseline `i18n.fr` (modifiable ensuite) ;
+- la **catégorie** du projet ;
+- un **statut** `LISTED` (visible et installable).
+
+Les publications suivantes du même projet mettent à jour la version publiée
+sur la fiche existante.
+
+---
+
+## Mettre à jour (nouvelle version)
+
+Il n'y a pas de mise à jour « en place » : vous incrémentez le `version`
+(semver) dans le manifeste, enregistrez un nouveau brouillon, et refaites le
+cycle `submit` → review → `publish`. Chaque version garde son propre
+historique (`DRAFT`/`REVIEW`/`APPROVED`/`PUBLISHED`/`REJECTED`) — vous
+pouvez avoir plusieurs versions dans des états différents en parallèle (par
+exemple une `PUBLISHED` en production pendant qu'une prochaine est en
+`REVIEW`).
+
+Côté tenant, les mises à jour **ne sont jamais appliquées automatiquement** :
+un administrateur doit ouvrir la fiche de son add-on installé et re-consentir
+explicitement aux permissions de la nouvelle version pour l'appliquer.
+Prévoyez que certains de vos utilisateurs restent sur une version antérieure
+un moment.
+
+---
+
+## Le kill switch (incident global ou par tenant)
+
+En cas d'incident (faille de sécurité découverte, comportement abusif,
+signalement fondé), l'équipe Capibara peut **désactiver une version**
+immédiatement :
+
+- **Globalement** — la version est isolée pour tous les tenants qui l'ont
+  installée.
+- **Pour un seul tenant** — si le problème n'affecte qu'un espace précis
+  (ex. donnée corrompue chez ce client), sans braquer le reste de votre base
+  installée.
+
+Chaque désactivation est enregistrée avec un motif, et peut être levée dès
+que le problème est résolu. Un incident actif sur une de vos versions vous
+est notifié — traitez-le en priorité : c'est le mécanisme qui protège vos
+utilisateurs (et votre réputation de développeur) en attendant un correctif.
+
+---
+
+## La fiche marketplace
+
+Éditable depuis la page de votre add-on sur le portail, une fois une
+première version publiée :
+
+| Champ | Contrainte |
+|---|---|
+| Accroche (`tagline`) | ≤ 140 caractères. |
+| Description (`descriptionMd`) | ≤ 20 000 caractères, en Markdown. |
+| Captures d'écran | jusqu'à 8, chacune une URL d'image que vous hébergez (pas d'upload dédié pour la fiche — utilisez votre propre hébergement d'images). |
+| Catégorie | reprise du projet, modifiable. |
+| Icône | image carrée, ≤ 1 Mo, uploadée depuis l'onglet général de votre projet — affichée sur le portail **et** la fiche marketplace. |
+
+Une fiche soignée (accroche claire, captures réelles de l'add-on en
+fonctionnement, description qui explique le bénéfice concret) reste le
+meilleur levier d'installation — la review juge la conformité, pas
+l'attractivité, mais les deux vont mieux ensemble.
+
+---
+
+# Revenus et rev-share
+
+## Le modèle de prix
+
+Le prix d'un add-on est déclaré dans le manifeste (`pricing`, cf.
+[Référence du manifeste](/dev/docs/manifeste#pricing)) :
+
+| `model` | Ce que paie le tenant |
+|---|---|
+| `free` | rien. |
+| `one_time` | un montant fixe (`amountEur`), une seule fois, à l'installation. |
+| `subscription` | `amountEur` par mois, avec un essai gratuit optionnel (`trialDays`, 0 à 30 jours). |
+
+Le prix est saisi en euros ; Stripe gère la conversion selon le pays du
+payeur au moment du paiement.
+
+---
+
+## Onboarding Stripe Connect Express
+
+Pour toucher le moindre euro, vous devez compléter l'onboarding **Stripe
+Connect Express** depuis `/dev/payouts` :
+
+1. Le portail crée votre compte Connect Express (associé à votre compte
+   développeur) au premier clic sur « Configurer mes paiements ».
+2. Vous êtes redirigé vers un formulaire Stripe hébergé (KYC : identité,
+   coordonnées bancaires). Vous pouvez le quitter et y revenir plus tard
+   (« Reprendre l'onboarding »).
+3. Une fois le KYC complet (`payouts_enabled` **et** `charges_enabled` côté
+   Stripe), votre compte passe « vérifié » et les paiements deviennent
+   possibles.
+
+> Si Stripe Connect n'est pas encore activé sur l'instance que vous utilisez
+> (environnement de test, par exemple), la page l'indique clairement : les
+> paiements développeurs seront disponibles à la bascule en production.
+
+---
+
+## Les 3 paliers de partage (sur le net après frais Stripe)
+
+| Palier | Part développeur | Condition |
+|---|---|---|
+| **Standard** | 60 % | par défaut, toujours actif. |
+| **Boost lancement** | 80 % | pendant les **90 jours** qui suivent votre toute première publication, tous add-ons confondus. |
+| **Capibara Partner** | 70 % | statut accordé par l'équipe Capibara. |
+
+Si plusieurs paliers s'appliquent en même temps, **le plus favorable pour
+vous** est retenu automatiquement — pas besoin de le demander.
+
+### Exemple chiffré — vente à 10 €
+
+1. Le tenant paie **10,00 €**.
+2. Les frais Stripe sont estimés à **1,5 % + 0,25 €** (cartes européennes),
+   soit ici **0,40 €**.
+3. Le **net** disponible au partage est donc **9,60 €**.
+4. Votre part dépend du palier actif :
+
+| Palier | Part dev | Vous touchez | Part plateforme |
+|---|---|---|---|
+| Standard (60 %) | 60 % | **5,76 €** | 3,84 € |
+| Boost lancement (80 %) | 80 % | **7,68 €** | 1,92 € |
+| Capibara Partner (70 %) | 70 % | **6,72 €** | 2,88 € |
+
+> Le taux de frais Stripe ci-dessus est une **estimation**, utilisée pour
+> fixer la retenue au moment du paiement. Le montant net réel dépend du type
+> de carte et du pays de l'acheteur ; il est réconcilié après coup depuis
+> Stripe et c'est cette valeur réconciliée qui apparaît dans votre récapitulatif
+> de revenus (`/dev/payouts`).
+
+---
+
+## Quand et comment c'est versé
+
+Les ventes sont encaissées par **transfert de destination** (« destination
+charges ») : votre part est transférée **automatiquement vers votre compte
+Stripe Connect à chaque vente**, sans action de votre part. La page
+`/dev/payouts` récapitule, par add-on : nombre de ventes, chiffre d'affaires
+brut, votre part cumulée. Le rythme effectif de mise à disposition des fonds
+sur votre compte bancaire (quotidien, hebdomadaire…) suit ensuite le
+calendrier de virement standard de votre compte Stripe Connect.
+
+### Remboursements
+
+Politique par défaut : **14 jours satisfait ou remboursé** sur les achats
+ponctuels, **au prorata** sur les abonnements (le mois entamé reste dû). En
+cas de remboursement, votre part est reprise au même prorata (transfert
+inverse) ; les frais Stripe non récupérables restent à la charge de la
+plateforme, jamais déduits une seconde fois de votre part.
+
+---
+
+## La TVA et votre fiscalité
+
+Stripe Tax gère la TVA européenne **sur la transaction avec l'acheteur**
+(le tenant qui installe votre add-on). Cela ne vous dispense pas de vos
+**propres obligations fiscales** : vous restez seul responsable de déclarer,
+dans votre pays, les revenus perçus via la plateforme. Capibara n'est ni
+votre comptable ni votre conseiller fiscal — en cas de doute, consultez un
+professionnel.
+
+---
+
+## Suivre vos revenus
+
+`/dev/payouts` affiche en temps réel :
+
+- l'état de votre compte Stripe Connect ;
+- votre palier de rev-share actuel et le nombre de jours restants du Boost
+  lancement, le cas échéant ;
+- vos ventes, votre chiffre d'affaires brut et votre part nette cumulée,
+  avec le détail des remboursements éventuels.

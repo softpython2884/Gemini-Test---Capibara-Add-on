@@ -1,0 +1,56 @@
+{
+  "key": "weather-widget",
+  "name": "Widget Météo OpenMeteo",
+  "version": "0.1.0",
+  "author": {
+    "name": "Antigravity",
+    "devAccountSlug": "antigravity"
+  },
+  "compatibility": {
+    "colibri": ">=1.0",
+    "modules": []
+  },
+  "permissions": [],
+  "capabilities": [
+    "ui.menu",
+    "ui.widget",
+    "storage.tenant.rw",
+    "http.fetch:api.open-meteo.com",
+    "http.fetch:geocoding-api.open-meteo.com"
+  ],
+  "contributes": {
+    "menuEntries": [
+      {
+        "key": "weather-settings",
+        "label": "Configuration Météo",
+        "labelI18n": {
+          "fr": "Configuration Météo",
+          "en": "Weather Settings"
+        },
+        "embedUrl": "https://weather-addon.example.com/settings.html",
+        "icon": "cloud-sun"
+      }
+    ],
+    "widgets": [
+      {
+        "key": "weather-dashboard-widget",
+        "titleI18n": {
+          "fr": "Météo Locale",
+          "en": "Local Weather"
+        },
+        "embedUrl": "https://weather-addon.example.com/widget.html",
+        "minHeight": 320
+      }
+    ]
+  },
+  "pricing": {
+    "model": "free"
+  },
+  "i18n": {
+    "fr": "Affichez la météo en temps réel et prévisions sur votre tableau de bord.",
+    "en": "Display real-time weather and forecasts on your dashboard."
+  },
+  "support": {
+    "email": "support@weather-addon.example.com"
+  }
+}

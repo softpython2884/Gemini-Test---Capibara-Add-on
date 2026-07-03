@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Configuration Météo — Capibara</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="compact">
+  <div class="app-container">
+    <h1>Configuration Météo</h1>
+    <p class="subtitle">Recherchez et configurez la ville dont vous souhaitez afficher la météo sur votre tableau de bord.</p>
+
+    <div class="toast success" id="toast-success">Configuration enregistrée avec succès !</div>
+    <div class="toast error" id="toast-error">Une erreur est survenue lors de l'enregistrement.</div>
+
+    <!-- Active City Information -->
+    <div style="margin-bottom: 20px; padding: 12px; background: rgba(255,255,255,0.02); border-radius: 12px; border: 1px solid var(--glass-border); font-size: 0.9rem;">
+      <span style="color: var(--text-muted);">Ville active :</span> 
+      <strong id="active-city" style="color: var(--accent-secondary);">Aucune</strong>
+    </div>
+
+    <!-- Search Section -->
+    <div class="search-box">
+      <input type="text" id="search-input" class="input-field" placeholder="Entrez le nom de votre ville... (ex: Paris)" autocomplete="off">
+      <button id="search-btn" class="btn">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        Rechercher
+      </button>
+    </div>
+
+    <!-- Results Dropdown -->
+    <ul id="results-list" class="results-list"></ul>
+
+    <!-- Save Action -->
+    <button id="save-btn" class="btn" style="width: 100%; justify-content: center; margin-top: 10px;" disabled>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+      Enregistrer la configuration
+    </button>
+  </div>
+
+  <script>
+    // Extract Capibara token from query params
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('capibara_token') || '';
+
+    // Elements
+    const searchInput = document.getElementById('search-input');
+    const searchBtn = document.getElementById('search-btn');
+    const resultsList = document.getElementById('results-list');
+    const saveBtn = document.getElementById('save-btn');
+    const activeCityText = document.getElementById('active-city');
+    const toastSuccess = document.getElementById('toast-success');
+    const toastError = document.getElementById('toast-error');
+
+    let selectedCity = null;
+
+    // Load active settings on load
+    async function loadActiveSettings() {
+      try {
+        const url = `/api/settings${token ? `?capibara_token=${encodeURIComponent(token)}` : ''}`;
+        const headers = {};
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+        
+        const res = await fetch(url, { headers });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.settings && data.settings.city) {
+            activeCityText.innerText = data.settings.city;
+            searchInput.value = data.settings.city.split(',')[0];
+          }
+        }
+      } catch (err) {
+        console.error('Erreur lors du chargement des paramètres:', err);
+      }
+    }
+
+    // Trigger Search in Open-Meteo
+    async function searchCities() {
+      const query = searchInput.value.trim();
+      if (!query || query.length < 2) return;
+
+      searchBtn.disabled = true;
+      searchBtn.innerText = 'Recherche...';
+      resultsList.style.display = 'none';
+      resultsList.innerHTML = '';
+      selectedCity = null;
+      saveBtn.disabled = true;
+
+      try {
+        const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=5&language=fr&format=json`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.results && data.results.length > 0) {
+            resultsList.style.display = 'block';
+            data.results.forEach(city => {
+              const li = document.createElement('li');
+              li.className = 'result-item';
+              
+              const nameSpan = document.createElement('span');
+              nameSpan.className = 'city-name';
+              nameSpan.innerText = city.name;
+
+              const detailsSpan = document.createElement('span');
+              detailsSpan.className = 'city-details';
+              
+              const region = city.admin1 ? `${city.admin1}, ` : '';
+              const country = city.country || '';
+              detailsSpan.innerText = `${region}${country} (${city.latitude.toFixed(4)}°, ${city.longitude.toFixed(4)}°)`;
+
+              li.appendChild(nameSpan);
+              li.appendChild(detailsSpan);
+
+              li.addEventListener('click', () => {
+                // Remove selected class from others
+                document.querySelectorAll('.result-item').forEach(item => item.classList.remove('selected'));
+                li.classList.add('selected');
+                
+                selectedCity = {
+                  city: `${city.name}${city.admin1 ? `, ${city.admin1}` : ''}${city.country ? `, ${city.country}` : ''}`,
+                  latitude: city.latitude,
+                  longitude: city.longitude
+                };
+                
+                saveBtn.disabled = false;
+              });
+
+              resultsList.appendChild(li);
+            });
+          } else {
+            resultsList.style.display = 'block';
+            resultsList.innerHTML = '<li class="result-item" style="cursor: default; text-align: center; color: var(--text-muted);">Aucune ville trouvée.</li>';
+          }
+        }
+      } catch (err) {
+        console.error('Erreur lors du géocodage:', err);
+      } finally {
+        searchBtn.disabled = false;
+        searchBtn.innerHTML = `
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          Rechercher
+        `;
+      }
+    }
+
+    // Save Selection to local backend
+    async function saveSettings() {
+      if (!selectedCity) return;
+      saveBtn.disabled = true;
+      saveBtn.innerText = 'Enregistrement...';
+
+      try {
+        const url = `/api/settings${token ? `?capibara_token=${encodeURIComponent(token)}` : ''}`;
+        const headers = { 'Content-Type': 'application/json' };
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        const res = await fetch(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(selectedCity)
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          activeCityText.innerText = selectedCity.city;
+          resultsList.style.display = 'none';
+          showToast(toastSuccess);
+        } else {
+          showToast(toastError);
+        }
+      } catch (err) {
+        console.error('Erreur lors de la sauvegarde:', err);
+        showToast(toastError);
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = `
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+          Enregistrer la configuration
+        `;
+      }
+    }
+
+    function showToast(el) {
+      el.style.display = 'block';
+      setTimeout(() => { el.style.display = 'none'; }, 4000);
+    }
+
+    // Event listeners
+    searchBtn.addEventListener('click', searchCities);
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') searchCities();
+    });
+    saveBtn.addEventListener('click', saveSettings);
+
+    // Initial load
+    loadActiveSettings();
+  </script>
+</body>
+</html>

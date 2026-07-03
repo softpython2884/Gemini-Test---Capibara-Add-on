@@ -1,0 +1,29 @@
+# Capibara for Developers
+
+> Construisez des add-ons pour Capibara sans accès à son code source :
+> manifeste déclaratif, permissions consenties par le tenant, API publique,
+> authentification OAuth, publication et partage de revenu.
+
+## Démarrer
+- [Démarrer avec les add-ons Capibara](https://capibara.fr/dev/docs/raw/demarrer): Le modèle add-on Capibara de bout en bout : compte développeur, premier projet, manifeste minimal, et cycle DRAFT → REVIEW → PUBLISHED.
+- [Utiliser cette doc avec votre IA](https://capibara.fr/dev/docs/raw/llm): Les URLs llms.txt, llms-full.txt, le Markdown brut par page et l'archive ZIP — pour construire un add-on Capibara avec l'aide d'un assistant IA.
+
+## Référence
+- [Référence du manifeste add-on.json](https://capibara.fr/dev/docs/raw/manifeste): Chaque champ du manifeste add-on.json : type, contrainte exacte, règles de tarification croisées, erreurs de validation typiques et 3 manifestes complets.
+- [Capabilities et quotas d’exécution](https://capibara.fr/dev/docs/raw/capabilities): Chaque capability déclarable dans le manifeste, ce qu'elle autorise, quand la demander, et les quotas de l'exécution hébergée en préparation.
+- [Permissions et consentement du tenant](https://capibara.fr/dev/docs/raw/permissions): Le format resource:action, l'écran de consentement que voit l'administrateur du tenant à l'installation, et les bonnes pratiques du moindre privilège.
+- [SDK @capibara-dev/sdk](https://capibara.fr/dev/docs/raw/sdk): Le SDK TypeScript officiel : types du manifeste, client API, aides OAuth PKCE et vérification de signature des webhooks — zéro dépendance.
+
+## API & intégration
+- [Sign in with Capibara (OAuth)](https://capibara.fr/dev/docs/raw/oauth): Les deux grants OAuth réels de Capibara — client_credentials serveur-à-serveur et authorization_code + PKCE avec écran de consentement — séquences curl complètes.
+- [API publique](https://capibara.fr/dev/docs/raw/api-publique): Authentification Bearer (clé API ou jeton OAuth), l'endpoint /api/public/v1/me, les quotas et les conventions d'erreur de l'API publique Capibara.
+- [Webhooks sortants](https://capibara.fr/dev/docs/raw/webhooks): Recevez les événements métier (commande, facture, contact…) des organisations qui utilisent votre app : configuration, signature HMAC, retries, idempotence.
+
+## Distribution
+- [Publication et review](https://capibara.fr/dev/docs/raw/publication): Soumettre en review, ce qui est vérifié aujourd'hui, les motifs de refus courants, publier, mettre à jour, le kill switch et la fiche marketplace.
+- [Revenus et rev-share](https://capibara.fr/dev/docs/raw/revenus): Le modèle de prix du manifeste, l'onboarding Stripe Connect, les 3 paliers de partage chiffrés en euros, et la responsabilité fiscale du développeur.
+
+## Autres formats
+- [Documentation complète en un seul fichier](https://capibara.fr/llms-full.txt): toutes les pages concaténées, pour être collées telles quelles dans le contexte d'un agent.
+- [Archive .zip](https://capibara.fr/dev/docs/download): un fichier Markdown par page.
+- [Portail développeur](https://capibara.fr/dev/docs): version mise en page, avec sommaire et recherche.
